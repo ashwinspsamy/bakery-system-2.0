@@ -13,8 +13,13 @@ const cartCount = document.getElementById('cart-count');
 const cartTotal = document.getElementById('cart-total-price');
 const placeOrderBtn = document.getElementById('place-order-btn');
 const categoryFilters = document.getElementById('category-filters');
+const storeQrBtn = document.getElementById('method-store-qr');
+const storeQrDisplay = document.getElementById('store-qr-display');
 
 const tableNumberInput = document.getElementById('tableNumber');
+
+// UPI payment state
+let upiPaymentConfirmed = false;
 
 // Translations
 const translations = {
@@ -382,14 +387,28 @@ async function placeOrder() {
 
 function selectPaymentMethod(method) {
     selectedPaymentMethod = method;
+    upiPaymentConfirmed = false;
     const cashBtn = document.getElementById('method-cash');
     if (cashBtn) cashBtn.classList.toggle('active', method === 'CASH');
     if (storeQrBtn) storeQrBtn.classList.toggle('active', method === 'STORE_QR');
-    
+
+    const payBtn = document.getElementById('confirm-pay-btn');
+    const upiConfirmRow = document.getElementById('upi-confirm-row');
+
     if (method === 'STORE_QR') {
         if (storeQrDisplay) storeQrDisplay.style.display = 'block';
+        if (upiConfirmRow) upiConfirmRow.style.display = 'flex';
+        if (payBtn) {
+            payBtn.textContent = 'Place Order & Pay';
+            payBtn.style.opacity = '1';
+        }
     } else {
         if (storeQrDisplay) storeQrDisplay.style.display = 'none';
+        if (upiConfirmRow) upiConfirmRow.style.display = 'none';
+        if (payBtn) {
+            payBtn.textContent = 'Place Order & Pay';
+            payBtn.style.opacity = '1';
+        }
     }
 }
 
@@ -399,6 +418,22 @@ function closePaymentModal() {
 }
 
 async function processPayment() {
+    // If UPI selected, require confirmation checkbox
+    if (selectedPaymentMethod === 'STORE_QR') {
+        const upiCheck = document.getElementById('upi-paid-check');
+        if (upiCheck && !upiCheck.checked) {
+            showToast('Please confirm you have completed the UPI payment', 'error');
+            // Shake the confirm row
+            const row = document.getElementById('upi-confirm-row');
+            if (row) {
+                row.style.animation = 'none';
+                row.offsetHeight; // reflow
+                row.style.animation = 'shake 0.4s ease';
+            }
+            return;
+        }
+    }
+
     const tableNumber = tableNumberInput ? tableNumberInput.value : 'Walk-in';
     const payBtn = document.getElementById('confirm-pay-btn');
 
