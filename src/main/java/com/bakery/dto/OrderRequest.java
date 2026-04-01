@@ -10,4 +10,5 @@ public class OrderRequest {
     private String department;
     private String customerYear;
     private List<OrderItemRequest> items;
+    private String paymentMethod;
 }

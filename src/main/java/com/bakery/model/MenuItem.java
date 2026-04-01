@@ -17,4 +17,5 @@ public class MenuItem {
     private double price;
     private String imageUrl;
     private String category;
+    private boolean available = true;
 }

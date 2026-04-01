@@ -1,7 +1,9 @@
 package com.bakery.config;
 
 import com.bakery.model.MenuItem;
+import com.bakery.model.UpiSettings;
 import com.bakery.repository.MenuItemRepository;
+import com.bakery.repository.UpiSettingsRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,8 +15,15 @@ import java.util.List;
 public class DataInitializer {
 
         @Bean
-        CommandLineRunner initDatabase(MenuItemRepository repository) {
+        CommandLineRunner initDatabase(MenuItemRepository repository, UpiSettingsRepository upiRepository) {
                 return args -> {
+                        if (upiRepository.count() == 0) {
+                                UpiSettings upi = new UpiSettings();
+                                upi.setUpiId("your-upi-id@bank");
+                                upi.setRecipientName("APJ Bakery");
+                                upi.setMerchantName("APJ Bakery Store");
+                                upiRepository.save(upi);
+                        }
                         if (repository.count() == 0) {
                                 MenuItem item1 = new MenuItem();
                                 item1.setName("Manapparai Murukku (250g)");

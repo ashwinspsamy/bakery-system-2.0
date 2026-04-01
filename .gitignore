@@ -59,3 +59,4 @@ maven.zip
 # OS files
 .DS_Store
 Thumbs.db
+*apache-maven*

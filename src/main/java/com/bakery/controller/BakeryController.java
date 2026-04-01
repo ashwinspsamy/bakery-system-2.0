@@ -7,8 +7,10 @@ import com.bakery.model.BakeryOrder;
 import com.bakery.model.MenuItem;
 import com.bakery.model.OrderItem;
 import com.bakery.model.OrderStatus;
+import com.bakery.model.UpiSettings;
 import com.bakery.repository.MenuItemRepository;
 import com.bakery.repository.OrderRepository;
+import com.bakery.repository.UpiSettingsRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,6 +30,9 @@ public class BakeryController {
     @Autowired
     private OrderRepository orderRepository;
 
+    @Autowired
+    private UpiSettingsRepository upiRepository;
+
     @GetMapping("/menu")
     public List<MenuItem> getMenu() {
         return menuItemRepository.findAll();
@@ -46,6 +51,7 @@ public class BakeryController {
             item.setPrice(updatedItem.getPrice());
             item.setImageUrl(updatedItem.getImageUrl());
             item.setCategory(updatedItem.getCategory());
+            item.setAvailable(updatedItem.isAvailable());
             return ResponseEntity.ok(menuItemRepository.save(item));
         }).orElse(ResponseEntity.notFound().build());
     }
@@ -66,8 +72,9 @@ public class BakeryController {
         order.setCustomerName(orderRequest.getCustomerName());
         order.setDepartment(orderRequest.getDepartment());
         order.setCustomerYear(orderRequest.getCustomerYear());
+        order.setPaymentMethod(orderRequest.getPaymentMethod());
         order.setOrderTime(LocalDateTime.now());
-        order.setStatus(OrderStatus.PENDING);
+        order.setStatus(OrderStatus.PAYMENT_PENDING);
 
         double total = 0;
         for (OrderItemRequest itemReq : orderRequest.getItems()) {
@@ -110,5 +117,36 @@ public class BakeryController {
             BakeryOrder saved = orderRepository.save(order);
             return ResponseEntity.ok(saved);
         }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/orders/{id}/confirm-payment")
+    public ResponseEntity<BakeryOrder> confirmPayment(@NonNull @PathVariable(name = "id") Long id) {
+        return orderRepository.findById(id).map(order -> {
+            if (order.getStatus() == OrderStatus.PAYMENT_PENDING) {
+                order.setStatus(OrderStatus.PENDING);
+                BakeryOrder saved = orderRepository.save(order);
+                return ResponseEntity.ok(saved);
+            }
+            return ResponseEntity.ok(order);
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/settings/upi")
+    public ResponseEntity<UpiSettings> getUpiSettings() {
+        return upiRepository.findFirstByOrderByIdAsc()
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PutMapping("/settings/upi")
+    public ResponseEntity<UpiSettings> updateUpiSettings(@RequestBody UpiSettings updatedSettings) {
+        return upiRepository.findFirstByOrderByIdAsc()
+                .map(settings -> {
+                    settings.setUpiId(updatedSettings.getUpiId());
+                    settings.setRecipientName(updatedSettings.getRecipientName());
+                    settings.setMerchantName(updatedSettings.getMerchantName());
+                    return ResponseEntity.ok(upiRepository.save(settings));
+                })
+                .orElseGet(() -> ResponseEntity.ok(upiRepository.save(updatedSettings)));
     }
 }

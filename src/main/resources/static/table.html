@@ -41,7 +41,8 @@
                     <label for="searchTable">Table / Name:</label>
                     <input type="text" id="searchTable" placeholder="Table No or Name">
                     <button class="btn-primary" onclick="loadTableOrders()">Search</button>
-                    <button class="btn-refresh" onclick="loadAllUserOrders()" style="background:#eee; color:#333;">Show All Active</button>
+                    <button class="btn-refresh" onclick="loadAllUserOrders()" style="background:#eee; color:#333;">Show
+                        All Active</button>
                 </div>
             </div>
 
@@ -60,16 +61,16 @@
             // Check for search parameter in URL first
             const urlParams = new URLSearchParams(window.location.search);
             const urlSearch = urlParams.get('search');
-            
+
             // Fallback to localStorage
             const savedSearch = urlSearch || localStorage.getItem('custName') || localStorage.getItem('currentTableId') || '';
-            
+
             const searchInput = document.getElementById('searchTable');
             if (searchInput) {
                 searchInput.value = savedSearch;
                 loadTableOrders();
             }
-            
+
             setInterval(loadTableOrders, 10000); // auto-refresh status
         });
     </script>

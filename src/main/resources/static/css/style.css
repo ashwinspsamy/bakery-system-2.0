@@ -667,6 +667,16 @@ input[type="number"]:focus {
     color: #7f8c8d;
 }
 
+.status-badge.REFUNDED {
+    background: #fadbd8;
+    color: #e56b55;
+}
+
+.order-history-card.status-REFUNDED {
+    border-color: #e56b55;
+    background-color: #fff9f8;
+}
+
 .order-history-items {
     list-style: none;
 }

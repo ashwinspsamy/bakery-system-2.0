@@ -210,6 +210,10 @@
         </header>
 
         <section class="orders-kanban" id="orders-kanban">
+            <div class="kanban-column" style="border-left: 5px solid #e67e22;">
+                <h3 style="color:#e67e22;">Unpaid (Cash)</h3>
+                <div class="order-list" id="col-PAYMENT_PENDING"></div>
+            </div>
             <div class="kanban-column">
                 <h3>Pending</h3>
                 <div class="order-list" id="col-PENDING"></div>
@@ -260,6 +264,27 @@
                     </div>
                 </div>
 
+                <!-- UPI Payment Settings -->
+                <div class="admin-order-card">
+                    <h3>UPI Payment Settings</h3>
+                    <div style="display:flex; flex-direction:column; gap:12px; margin-top:10px;">
+                        <p style="font-size:0.85rem; color:#666;">Configure the UPI details customers see at checkout.</p>
+                        <div class="form-group" style="margin:0;">
+                            <label style="font-size:0.8rem; color:#888;">UPI ID (VPA):</label>
+                            <input type="text" id="upiId" placeholder="e.g. name@bank" style="padding:0.7rem; border-radius:8px; border:1px solid #ddd; width:100%;">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label style="font-size:0.8rem; color:#888;">Recipient Name:</label>
+                            <input type="text" id="upiName" placeholder="e.g. APJ Bakery" style="padding:0.7rem; border-radius:8px; border:1px solid #ddd; width:100%;">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label style="font-size:0.8rem; color:#888;">Merchant Name (Optional):</label>
+                            <input type="text" id="upiMerchant" placeholder="e.g. APJ Bakery Store" style="padding:0.7rem; border-radius:8px; border:1px solid #ddd; width:100%;">
+                        </div>
+                        <button class="btn-primary" onclick="saveUpiSettings()" style="background:#3498db;">Update UPI Details</button>
+                    </div>
+                </div>
+
                 <!-- Add New Item -->
                 <div class="admin-order-card" id="add-item-panel">
                     <h3 id="form-title">Add New Item</h3>
@@ -276,6 +301,10 @@
                             <option value="Combo">Combo Offer (Featured at top)</option>
                         </select>
                         <textarea id="itemDesc" placeholder="Description/Combo Contents" rows="3" required></textarea>
+                        <div style="display:flex; align-items:center; gap:10px; padding:5px;">
+                            <input type="checkbox" id="itemAvailable" checked style="width:20px; height:20px;">
+                            <label for="itemAvailable" style="font-size:0.9rem; color:#2d241c; font-weight:600;">Available for Customers</label>
+                        </div>
                         <div style="display:flex; gap:10px;">
                             <button type="submit" id="submit-btn" class="btn-primary" style="flex:1;">Add Item</button>
                             <button type="button" id="cancel-edit-btn" class="btn-refresh" style="display:none; flex:1;"
@@ -384,8 +413,52 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadAllOrders();
             loadAdminMenu();
+            loadUpiSettings();
             setInterval(loadAllOrders, 10000);
         });
+
+        // ── UPI Settings ───────────────────────────────────────────
+        async function loadUpiSettings() {
+            try {
+                const response = await fetch('/api/settings/upi');
+                if (response.ok) {
+                    const settings = await response.json();
+                    document.getElementById('upiId').value = settings.upiId || '';
+                    document.getElementById('upiName').value = settings.recipientName || '';
+                    document.getElementById('upiMerchant').value = settings.merchantName || '';
+                }
+            } catch (error) {
+                console.error('Error loading UPI settings:', error);
+            }
+        }
+
+        async function saveUpiSettings() {
+            const upiId = document.getElementById('upiId').value.trim();
+            const recipientName = document.getElementById('upiName').value.trim();
+            const merchantName = document.getElementById('upiMerchant').value.trim();
+
+            if (!upiId || !recipientName) {
+                showToast("UPI ID and Recipient Name are required", "error");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/settings/upi', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ upiId, recipientName, merchantName })
+                });
+
+                if (response.ok) {
+                    showToast("UPI settings updated successfully!");
+                } else {
+                    showToast("Failed to update UPI settings", "error");
+                }
+            } catch (error) {
+                console.error('Error saving UPI settings:', error);
+                showToast("Error saving settings", "error");
+            }
+        }
 
         // ── Override loadAllOrders with bill + stats support ─────────
         async function loadAllOrders() {
@@ -398,6 +471,8 @@
                 const orders = await response.json();
 
                 // Clear columns
+                const penCol = document.getElementById('col-PAYMENT_PENDING');
+                if (penCol) penCol.innerHTML = '';
                 document.getElementById('col-PENDING').innerHTML = '';
                 document.getElementById('col-PREPARING').innerHTML = '';
                 document.getElementById('col-READY').innerHTML = '';
@@ -409,6 +484,7 @@
                 let totalRevenue = 0;
                 let pendingBill = 0;
                 let completedOrders = [];
+                let refundedOrders = [];
 
                 orders.forEach(order => {
                     const bill = order.totalPrice || 0;
@@ -416,6 +492,11 @@
                     if (order.status === 'COMPLETED') {
                         totalRevenue += bill;
                         completedOrders.push(order);
+                        return;
+                    }
+                    
+                    if (order.status === 'REFUNDED') {
+                        refundedOrders.push(order);
                         return;
                     }
 
@@ -427,13 +508,22 @@
                     const time = new Date(order.orderTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     let actionBtn = '';
 
-                    if (order.status === 'PENDING') {
-                        actionBtn = `<button class="btn-action prepare" onclick="updateOrderStatus(${order.id}, 'PREPARING')">Prepare</button>`;
+                    if (order.status === 'PAYMENT_PENDING') {
+                        actionBtn = `<button class="btn-action prepare" onclick="confirmOrderPayment(${order.id})" style="background:#e67e22; border-color:#d35400;">Confirm Cash Payment</button>`;
+                    } else if (order.status === 'PENDING') {
+                        actionBtn = `
+                            <button class="btn-action prepare" onclick="updateOrderStatus(${order.id}, 'PREPARING')">Prepare</button>
+                            <button class="btn-action refund" onclick="updateOrderStatus(${order.id}, 'REFUNDED')" style="background:#e56b55; margin-top:5px; width:100%;">Refund (Out of Stock)</button>
+                        `;
                     } else if (order.status === 'PREPARING') {
-                        actionBtn = `<button class="btn-action ready" onclick="updateOrderStatus(${order.id}, 'READY')">Ready</button>`;
+                        actionBtn = `
+                            <button class="btn-action ready" onclick="updateOrderStatus(${order.id}, 'READY')">Ready</button>
+                            <button class="btn-action refund" onclick="updateOrderStatus(${order.id}, 'REFUNDED')" style="background:#e56b55; margin-top:5px; width:100%;">Refund (Out of Stock)</button>
+                        `;
                     } else if (order.status === 'READY') {
                         actionBtn = `
-                            <button class="btn-action complete" onclick="updateOrderStatus(${order.id}, 'COMPLETED')" style="background:#27ae60; margin-bottom:5px; width: 100%;">Mark as Paid</button>
+                            <button class="btn-action complete" onclick="updateOrderStatus(${order.id}, 'COMPLETED')" style="background:#27ae60; margin-bottom:5px; width:100%;">Mark as Delivered</button>
+                            <button class="btn-action refund" onclick="updateOrderStatus(${order.id}, 'REFUNDED')" style="background:#e56b55; width:100%;">Refund (Out of Stock)</button>
                         `;
                     }
 
@@ -478,22 +568,51 @@
 
                         const card = document.createElement('div');
                         card.className = 'admin-order-card';
-                        card.style.borderLeftColor = '#95a5a6';
+                        card.style.borderLeftColor = '#27ae60';
                         card.style.display = 'flex';
                         card.style.justifyContent = 'space-between';
                         card.style.alignItems = 'center';
                         card.style.flexWrap = 'wrap';
                         card.style.gap = '0.5rem';
                         card.innerHTML = `
-                            <div>
+                            <div style="flex:1;">
                                 <strong>#${order.id} - ${order.customerName || 'Guest'}</strong>
                                 <span style="margin-left:0.8rem; font-size:0.82rem; color:#aaa;">${time} · Table ${order.tableNumber}</span>
                                 <div style="font-size:0.82rem; color:#888; margin-top:3px;">🏢 ${order.department || 'N/A'} · 🎓 ${order.customerYear || 'N/A'}</div>
                                 <div style="font-size:0.88rem; color:#999; margin-top:0.4rem; padding-top:0.4rem; border-top:1px dashed #eee;">${itemsText}</div>
                             </div>
                             <div style="text-align:right;">
-                                <span style="background:#f2f4f4; color:#7f8c8d; padding:0.25rem 0.7rem; border-radius:20px; font-size:0.78rem; font-weight:700; text-transform:uppercase;">Completed</span>
+                                <span style="background:#e8f5e9; color:#27ae60; padding:0.25rem 0.7rem; border-radius:20px; font-size:0.78rem; font-weight:700; text-transform:uppercase;">Completed</span>
                                 <div style="font-size:1.1rem; font-weight:700; color:#2d241c; margin-top:0.4rem;">${formatCurrency(bill)}</div>
+                            </div>
+                        `;
+                        completedSection.appendChild(card);
+                    });
+                    
+                    refundedOrders.reverse().forEach(order => {
+                        const time = new Date(order.orderTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const itemsText = order.items.map(i => `${i.quantity}× ${i.menuItem.name}`).join(', ');
+                        const bill = order.totalPrice || 0;
+
+                        const card = document.createElement('div');
+                        card.className = 'admin-order-card';
+                        card.style.borderLeftColor = '#e56b55';
+                        card.style.opacity = '0.85';
+                        card.style.display = 'flex';
+                        card.style.justifyContent = 'space-between';
+                        card.style.alignItems = 'center';
+                        card.style.flexWrap = 'wrap';
+                        card.style.gap = '0.5rem';
+                        card.innerHTML = `
+                            <div style="flex:1;">
+                                <strong style="color:#e56b55;">#${order.id} - ${order.customerName || 'Guest'} (Refunded)</strong>
+                                <span style="margin-left:0.8rem; font-size:0.82rem; color:#aaa;">${time} · Table ${order.tableNumber}</span>
+                                <div style="font-size:0.82rem; color:#888; margin-top:3px;">🏢 ${order.department || 'N/A'} · 🎓 ${order.customerYear || 'N/A'}</div>
+                                <div style="font-size:0.88rem; color:#9c3d3a; margin-top:0.4rem; padding-top:0.4rem; border-top:1px dashed #fadbd8;">MISSING ITEM: ${itemsText}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <span style="background:#fadbd8; color:#e56b55; padding:0.25rem 0.7rem; border-radius:20px; font-size:0.78rem; font-weight:700; text-transform:uppercase;">Refund Issued</span>
+                                <div style="font-size:1.1rem; font-weight:700; color:#c0392b; margin-top:0.4rem;">- ${formatCurrency(bill)}</div>
                             </div>
                         `;
                         completedSection.appendChild(card);
@@ -510,6 +629,18 @@
             } catch (error) {
                 console.error('Error fetching all orders:', error);
                 showToast('Failed to fetch orders', 'error');
+            }
+        }
+
+        async function confirmOrderPayment(orderId) {
+            try {
+                const response = await fetch(`/api/orders/${orderId}/confirm-payment`, { method: 'POST' });
+                if (response.ok) {
+                    showToast(`Payment confirmed for Order #${orderId}!`);
+                    loadAllOrders();
+                }
+            } catch (error) {
+                console.error('Error confirming payment:', error);
             }
         }
     </script>

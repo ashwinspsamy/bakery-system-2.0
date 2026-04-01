@@ -3,9 +3,10 @@ const API_URL = '/api';
 // State
 let menuItems = [];
 let cart = [];
-let selectedPaymentMethod = 'CASH';
+let selectedPaymentMethod = 'STORE_QR';
 let customerUPIQR = null;
-
+let upiSettings = null;
+let currentUpiUrl = '';
 // DOM Elements - Store
 const menuGrid = document.getElementById('menu-grid');
 const cartItemsContainer = document.getElementById('cart-items');
@@ -224,8 +225,8 @@ function renderMenu(items) {
     const comboGrid = document.getElementById('combo-grid');
 
     // Separate Combo items
-    const comboItems = menuItems.filter(i => i.category.toLowerCase() === 'combo');
-    const regularItems = items.filter(i => i.category.toLowerCase() !== 'combo');
+    const comboItems = menuItems.filter(i => i.category.toLowerCase() === 'combo' && (i.available !== false));
+    const regularItems = items.filter(i => i.category.toLowerCase() !== 'combo' && (i.available !== false));
 
     // Render Combos
     if (comboGrid && comboItems.length > 0) {
@@ -393,21 +394,33 @@ function selectPaymentMethod(method) {
     if (storeQrBtn) storeQrBtn.classList.toggle('active', method === 'STORE_QR');
 
     const payBtn = document.getElementById('confirm-pay-btn');
-    const upiConfirmRow = document.getElementById('upi-confirm-row');
+    const openUpiBtn = document.getElementById('open-upi-app-btn');
+    const screenshotSection = document.getElementById('screenshot-section');
+    const fileInput = document.getElementById('payment-screenshot');
+    const upiCheck = document.getElementById('upi-paid-check');
 
     if (method === 'STORE_QR') {
         if (storeQrDisplay) storeQrDisplay.style.display = 'block';
-        if (upiConfirmRow) upiConfirmRow.style.display = 'flex';
+        if (openUpiBtn) openUpiBtn.style.display = 'block';
+        if (screenshotSection) screenshotSection.style.display = 'none';
         if (payBtn) {
-            payBtn.textContent = 'Place Order & Pay';
-            payBtn.style.opacity = '1';
+            payBtn.style.display = 'none';
+            payBtn.disabled = true;
+            payBtn.style.opacity = '0.5';
+            payBtn.textContent = 'Confirm Order';
         }
+        if (fileInput) fileInput.value = '';
+        if (upiCheck) upiCheck.checked = false;
+        generatePaymentQR();
     } else {
         if (storeQrDisplay) storeQrDisplay.style.display = 'none';
-        if (upiConfirmRow) upiConfirmRow.style.display = 'none';
+        if (openUpiBtn) openUpiBtn.style.display = 'none';
+        if (screenshotSection) screenshotSection.style.display = 'none';
         if (payBtn) {
-            payBtn.textContent = 'Place Order & Pay';
+            payBtn.style.display = 'block';
+            payBtn.disabled = false;
             payBtn.style.opacity = '1';
+            payBtn.textContent = 'Place Order & Pay';
         }
     }
 }
@@ -417,14 +430,94 @@ function closePaymentModal() {
     if (modal) modal.style.display = 'none';
 }
 
+async function generatePaymentQR() {
+    const qrContainer = document.getElementById('order-upi-qrcode');
+    const detailsText = document.getElementById('upi-details-text');
+    if (!qrContainer) return;
+
+    try {
+        // Fetch fresh settings if not yet loaded
+        if (!upiSettings) {
+            const response = await fetch(`${API_URL}/settings/upi`);
+            if (response.ok) {
+                upiSettings = await response.json();
+            }
+        }
+
+        if (!upiSettings || !upiSettings.upiId) {
+            qrContainer.innerHTML = '<p style="color:red; font-size:0.8rem;">UPI settings not configured.</p>';
+            return;
+        }
+
+        qrContainer.innerHTML = '';
+        const totalPrice = cart.reduce((sum, item) => sum + (item.menuItem.price * item.quantity), 0);
+        
+        // UPI URL format: upi://pay?pa=address@bank&pn=Name&am=Amount&cu=INR
+        const upiUrl = `upi://pay?pa=${upiSettings.upiId}&pn=${encodeURIComponent(upiSettings.recipientName)}&am=${totalPrice.toFixed(2)}&cu=INR`;
+        currentUpiUrl = upiUrl;
+        
+        new QRCode(qrContainer, {
+            text: upiUrl,
+            width: 180,
+            height: 180,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+        });
+
+        if (detailsText) {
+            detailsText.innerHTML = `
+                <div style="font-size:0.9rem; color:#2d241c;">Pay to: <strong>${upiSettings.recipientName}</strong></div>
+                <div style="font-size:0.8rem; color:#666;">UPI ID: ${upiSettings.upiId}</div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error generating payment QR:', error);
+        qrContainer.innerHTML = 'Error loading UPI details';
+    }
+}
+
+function openUpiApp() {
+    if (currentUpiUrl) {
+        window.location.href = currentUpiUrl;
+        
+        // Change UI to ask for screenshot after returning
+        document.getElementById('open-upi-app-btn').style.display = 'none';
+        document.getElementById('screenshot-section').style.display = 'block';
+        document.getElementById('confirm-pay-btn').style.display = 'block';
+    } else {
+        showToast('UPI URL not generated. Please try again.', 'error');
+    }
+}
+
+function checkScreenshot() {
+    const fileInput = document.getElementById('payment-screenshot');
+    const checkbox = document.getElementById('upi-paid-check');
+    const confirmBtn = document.getElementById('confirm-pay-btn');
+    
+    if (fileInput && fileInput.files.length > 0 && checkbox && checkbox.checked) {
+        confirmBtn.disabled = false;
+        confirmBtn.style.opacity = '1';
+    } else {
+        confirmBtn.disabled = true;
+        confirmBtn.style.opacity = '0.5';
+    }
+}
+
 async function processPayment() {
-    // If UPI selected, require confirmation checkbox
+    // If UPI selected, require confirmation checkbox and screenshot
     if (selectedPaymentMethod === 'STORE_QR') {
+        const fileInput = document.getElementById('payment-screenshot');
+        if (!fileInput || fileInput.files.length === 0) {
+            showToast('Please attach the payment screenshot before confirming.', 'error');
+            return;
+        }
+
         const upiCheck = document.getElementById('upi-paid-check');
         if (upiCheck && !upiCheck.checked) {
             showToast('Please confirm you have completed the UPI payment', 'error');
-            // Shake the confirm row
-            const row = document.getElementById('upi-confirm-row');
+            // Shake the section
+            const row = document.getElementById('screenshot-section');
             if (row) {
                 row.style.animation = 'none';
                 row.offsetHeight; // reflow
@@ -464,7 +557,15 @@ async function processPayment() {
             if (response.ok) {
                 const result = await response.json();
                 
-                showToast('Order Placed Successfully! 🎉');
+                // For UPI: auto-confirm payment since customer checked the box
+                // For Cash: admin must confirm payment in dashboard
+                if (selectedPaymentMethod === 'STORE_QR') {
+                    await fetch(`${API_URL}/orders/${result.id}/confirm-payment`, { method: 'POST' });
+                    showToast('UPI Payment Confirmed! Order sent to kitchen 🎉');
+                } else {
+                    showToast('Order placed! Please pay at counter 💵');
+                }
+                
                 // Get identifying term for tracking
                 window.trackingTerm = tableNumber !== 'Walk-in' ? tableNumber : (localStorage.getItem('custName') || '');
                 
@@ -473,10 +574,20 @@ async function processPayment() {
                 // Show Success Modal instead of auto-redirecting
                 const successModal = document.getElementById('order-success-modal');
                 if (successModal) {
-                    // Calculate total from cart before clearing it
                     const totalPrice = cart.reduce((sum, item) => sum + (item.menuItem.price * item.quantity), 0);
                     const successTotal = document.getElementById('success-total-price');
                     if (successTotal) successTotal.textContent = formatCurrency(totalPrice);
+                    
+                    const successPaymentMsg = document.getElementById('success-payment-msg');
+                    if (successPaymentMsg) {
+                        if (selectedPaymentMethod === 'STORE_QR') {
+                            successPaymentMsg.textContent = '✅ UPI Payment confirmed! Kitchen notified.';
+                            successPaymentMsg.style.color = '#27ae60';
+                        } else {
+                            successPaymentMsg.textContent = '💵 Please pay at counter to confirm order.';
+                            successPaymentMsg.style.color = '#e67e22';
+                        }
+                    }
                     
                     successModal.style.display = 'flex';
                 }
@@ -484,6 +595,7 @@ async function processPayment() {
                 // Clear cart after calculating total
                 cart = [];
                 updateCartUI();
+
             } else {
                 showToast('Failed to place order', 'error');
                 payBtn.disabled = false;
@@ -583,7 +695,7 @@ function renderOrderHistory(orders, container) {
                     </div>
                     <span style="font-size:0.8rem; color:#888;">⏰ ${date} · 🏷️ Table ${order.tableNumber}</span>
                 </div>
-                <span class="status-badge ${order.status}">${order.status}</span>
+                <span class="status-badge ${order.status}">${order.status === 'REFUNDED' ? 'REFUNDED (Item Unavailable)' : order.status}</span>
             </div>
             <ul class="order-history-items">
                 ${itemsHtml}
@@ -684,49 +796,182 @@ async function loadAdminMenu() {
         const items = await response.json();
 
         list.innerHTML = '';
+
+        if (items.length === 0) {
+            list.innerHTML = `<p style="color:#aaa; font-style:italic; padding:1rem;">No menu items yet. Add one!</p>`;
+            return;
+        }
+
         items.forEach(item => {
-            list.innerHTML += `
-                <div class="admin-order-card" style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <strong>${item.name}</strong> - ₹${item.price} <br>
-                        <small>${item.category}</small>
+            const card = document.createElement('div');
+            card.className = 'admin-order-card';
+            card.style.cssText = 'display:flex; justify-content:space-between; align-items:center; gap:0.5rem;';
+            card.innerHTML = `
+                <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                        <strong style="font-size:1rem; color:#2d241c;">${item.name}</strong>
+                        <span style="background:#f5f0ea; color:#8B4513; border-radius:20px; padding:2px 10px; font-size:0.75rem; font-weight:700;">${item.category}</span>
+                        ${!item.available ? '<span style="background:#fadbd8; color:#e56b55; border-radius:20px; padding:2px 10px; font-size:0.75rem; font-weight:700; text-transform:uppercase;">Out of Stock</span>' : ''}
                     </div>
-                    <div>
-                        <button class="btn-primary" style="background:#e56b55; padding:0.3rem 0.5rem;" onclick="deleteMenuItem(${item.id})">Delete</button>
-                    </div>
+                    <div style="font-size:0.9rem; color:#555; margin-top:3px;">${item.description || ''}</div>
+                    <div style="font-size:1.05rem; font-weight:700; color:var(--primary-color,#d18d4f); margin-top:4px;">₹${parseFloat(item.price).toFixed(2)}</div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:6px; flex-shrink:0;">
+                    <button
+                        style="background:${item.available ? '#27ae60' : '#e67e22'}; color:#fff; border:none; padding:0.35rem 0.8rem; border-radius:6px; cursor:pointer;"
+                        onclick="toggleItemAvailability(${item.id}, ${item.available}, '${item.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}')"
+                    >${item.available ? 'Mark Unavailable' : 'Mark Available'}</button>
+                    <button
+                        style="background:#3498db; color:#fff; border:none; padding:0.35rem 0.8rem; border-radius:6px; cursor:pointer; font-size:0.82rem; font-weight:600; font-family:inherit;"
+                        onclick="editMenuItem(${item.id}, '${item.name.replace(/'/g, "\\'").replace(/"/g, '&quot;')}', ${item.price}, '${item.category}', '${(item.description || '').replace(/'/g, "\\'").replace(/"/g, '&quot;')}', ${item.available})"
+                    >✏️ Edit</button>
+                    <button
+                        style="background:#e56b55; color:#fff; border:none; padding:0.35rem 0.8rem; border-radius:6px; cursor:pointer; font-size:0.82rem; font-weight:600; font-family:inherit;"
+                        onclick="deleteMenuItem(${item.id})"
+                    >🗑️ Delete</button>
                 </div>
             `;
+            list.appendChild(card);
         });
     } catch (error) {
-        console.error('Failed to load menu Items');
+        console.error('Failed to load menu items:', error);
+        showToast('Failed to load menu', 'error');
     }
 }
 
-async function addMenuItem(event) {
+/**
+ * Unified submit handler for Add and Edit.
+ * The hidden #itemId field distinguishes the two modes.
+ */
+async function handleMenuSubmit(event) {
     if (event) event.preventDefault();
-    const item = {
-        name: document.getElementById('itemName').value,
-        price: document.getElementById('itemPrice').value,
-        category: document.getElementById('itemCategory').value,
-        description: document.getElementById('itemDesc').value
-    };
+
+    const id       = document.getElementById('itemId').value;
+    const name     = document.getElementById('itemName').value.trim();
+    const price     = document.getElementById('itemPrice').value;
+    const category  = document.getElementById('itemCategory').value;
+    const desc      = document.getElementById('itemDesc').value.trim();
+    const available = document.getElementById('itemAvailable').checked;
+
+    if (!name || !price || !category || !desc) {
+        showToast('Please fill in all fields', 'error');
+        return;
+    }
+
+    const payload = { name, price: parseFloat(price), category, description: desc, available: available };
+
     try {
-        await fetch(`${API_URL}/menu`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(item)
-        });
-        showToast('Item Added');
+        let response;
+        if (id) {
+            // UPDATE existing item
+            response = await fetch(`${API_URL}/menu/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (response.ok) {
+                showToast(`"${name}" updated successfully! ✅`);
+            } else {
+                showToast('Failed to update item', 'error');
+                return;
+            }
+        } else {
+            // CREATE new item
+            response = await fetch(`${API_URL}/menu`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (response.ok) {
+                showToast(`"${name}" added to menu! 🎉`);
+            } else {
+                showToast('Failed to add item', 'error');
+                return;
+            }
+        }
+
+        resetMenuForm();
         loadAdminMenu();
-        document.getElementById('add-menu-form').reset();
-    } catch (e) { }
+    } catch (e) {
+        console.error('Menu submit error:', e);
+        showToast('Network error', 'error');
+    }
+}
+
+/**
+ * Populate the form with an existing item's data for editing.
+ */
+function editMenuItem(id, name, price, category, description, available) {
+    document.getElementById('itemId').value       = id;
+    document.getElementById('itemName').value     = name;
+    document.getElementById('itemPrice').value    = price;
+    document.getElementById('itemCategory').value = category;
+    document.getElementById('itemDesc').value     = description;
+    document.getElementById('itemAvailable').checked = available;
+
+    // Switch form to edit mode
+    document.getElementById('form-title').textContent    = '✏️ Edit Item';
+    document.getElementById('submit-btn').textContent    = 'Save Changes';
+    document.getElementById('submit-btn').style.background = '#3498db';
+    document.getElementById('cancel-edit-btn').style.display = 'block';
+
+    // Scroll form into view
+    const panel = document.getElementById('add-item-panel');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/**
+ * Reset the form back to "Add New Item" mode.
+ */
+function resetMenuForm() {
+    document.getElementById('add-menu-form').reset();
+    document.getElementById('itemId').value = '';
+    document.getElementById('itemAvailable').checked = true;
+
+    document.getElementById('form-title').textContent       = 'Add New Item';
+    document.getElementById('submit-btn').textContent       = 'Add Item';
+    document.getElementById('submit-btn').style.background  = '';
+    document.getElementById('cancel-edit-btn').style.display = 'none';
 }
 
 async function deleteMenuItem(id) {
-    if (!confirm("Are you sure?")) return;
+    if (!confirm('Are you sure you want to delete this item?')) return;
     try {
-        await fetch(`${API_URL}/menu/${id}`, { method: 'DELETE' });
-        showToast('Item Deleted', 'error');
-        loadAdminMenu();
-    } catch (e) { }
+        const response = await fetch(`${API_URL}/menu/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            showToast('Item deleted', 'error');
+            // If we were editing this item, reset the form
+            if (document.getElementById('itemId').value == id) resetMenuForm();
+            loadAdminMenu();
+        } else {
+            showToast('Failed to delete item', 'error');
+        }
+    } catch (e) {
+        console.error('Delete error:', e);
+        showToast('Network error', 'error');
+    }
+}
+
+async function toggleItemAvailability(id, currentStatus, name) {
+    try {
+        const response = await fetch(`${API_URL}/menu`);
+        const items = await response.json();
+        const item = items.find(i => i.id === id);
+        if (!item) return;
+
+        item.available = !currentStatus;
+
+        const updateResponse = await fetch(`${API_URL}/menu/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item)
+        });
+
+        if (updateResponse.ok) {
+            showToast(`"${name}" is now ${item.available ? 'Available' : 'Unavailable'}`);
+            loadAdminMenu();
+        }
+    } catch (e) {
+        console.error('Toggle error:', e);
+    }
 }
