@@ -378,7 +378,7 @@ async function placeOrder() {
         const payBtn = document.getElementById('confirm-pay-btn');
         if (payBtn) {
             payBtn.disabled = false;
-            payBtn.textContent = 'Place Order & Pay';
+            payBtn.textContent = 'Pay Now';
         }
         
         // Reset and generate QR if needed
@@ -420,7 +420,7 @@ function selectPaymentMethod(method) {
             payBtn.style.display = 'block';
             payBtn.disabled = false;
             payBtn.style.opacity = '1';
-            payBtn.textContent = 'Place Order & Pay';
+            payBtn.textContent = 'Place Order (Cash)';
         }
     }
 }
@@ -599,13 +599,13 @@ async function processPayment() {
             } else {
                 showToast('Failed to place order', 'error');
                 payBtn.disabled = false;
-                payBtn.textContent = 'Place Order & Pay';
+                payBtn.textContent = selectedPaymentMethod === 'STORE_QR' ? 'Confirm Order' : 'Place Order (Cash)';
             }
         } catch (error) {
             console.error('Error:', error);
             showToast('Network error', 'error');
             payBtn.disabled = false;
-            payBtn.textContent = 'Place Order & Pay';
+            payBtn.textContent = selectedPaymentMethod === 'STORE_QR' ? 'Confirm Order' : 'Place Order (Cash)';
         }
     }, 1500);
 }
